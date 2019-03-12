@@ -1,5 +1,4 @@
 #!/bin/bash
-set -xe
 
 EXIT_CODE=0
 HOST="$(uname -m)"
@@ -34,18 +33,25 @@ U_GID=$(getent passwd ${USER} | cut -d ':' -f 4)
 U_GROUP=$(getent group  ${U_GID} | cut -d ':' -f 1)
 U_SHELL=$(getent passwd ${USER} | cut -d ':' -f 7)
 
-echo "Executing as USER ${USER}(${U_UID}):${U_GROUP}(${U_GID})"
 CURRENT_DIR=${PWD}
-
 TEMP_DIR=$(mktemp -d)
 cd ${TEMP_DIR}
+echo ""
 
 _help() {
 printf "\
-Usage TARGET_ARCH=<input> CHROOT_DIR=<input> [CUSTOM_DOCKERFILE=<input>] $0 ... (docker run cmd pass through)
-	\"TARGET_ARCH\" is one of ${ARCH_LIST[@]}
-	\"CHROOT_DIR\" is the directory to chroot into
-	\"CUSTOM_DOCKERFILE\" gives a custom docker file to build from. This script only supports running ubuntu, but the version is pulled from your docker file
+	
+	Usage: 
+	xdocker [OPTIONS] <target architecture> <shared directory> [ <...> docker run cmd are passed through ]
+	
+		OPTIONS:
+			-f|--file <custom dockerfile>	gives a custom dockerfile to build from. 
+				This script only supports running ubuntu, but the version is pulled from your docker file
+
+		ARGS:
+			\"target architecture\" 		is one of ${ARCH_LIST[@]}
+			\"shared directory\" 			is the directory to chroot into
+
 "
 }
 
@@ -183,30 +189,68 @@ CMD [ \"/bin/bash\" ]\n\
 	then
 		for line in $(cat ${CUSTOM_DOCKERFILE})
 		do
-			[ "_$(echo ${line} | grep -e 'from' -E 'FROM')" == "_" ] && echo ${line} >> Dockerfile
+			if [ "_$(echo ${line} | grep -e 'from' -E 'FROM')" == "_" ]; then
+				echo ${line} >> Dockerfile
+			fi
 		done
 	fi
 }
+
 
 ###########################################
 # begin
 
 #######################
-# input variable
-TARGET_ARCH=$( _parse_or_set_default "$TARGET_ARCH" "${HOST}" )
-CHROOT_DIR=$( _parse_or_set_default "$CHROOT_DIR" "./" )
-CUSTOM_DOCKERFILE=$( _parse_or_set_default "$CUSTOM_DOCKERFILE" "" )
+# input args
 
 # assure to use absolute path
-CHROOT_DIR=$(_prep_path ${CHROOT_DIR})
-CUSTOM_DOCKERFILE=$(_prep_path ${CUSTOM_DOCKERFILE})
-CUSTOM_DOCKERFILE_DIR=$(_prep_path $(dirname ${CUSTOM_DOCKERFILE}) )
+CUSTOM_DOCKERFILE=""
+CUSTOM_DOCKERFILE_DIR=""
 
-MY_ARCH_INDEX=$( _get_arch_index ${TARGET_ARCH} )
-echo "using Arch ${QEMU_ARCH[${MY_ARCH_INDEX}]}"
+while true; do
+	case $1 in
+		-f|--file)
+			CUSTOM_DOCKERFILE=$(_prep_path $( _parse_or_set_default "$2" "" ))
+			if [ "_${CUSTOM_DOCKERFILE}" != "_" ]; then
+				CUSTOM_DOCKERFILE_DIR=$(_prep_path $(dirname ${CUSTOM_DOCKERFILE}) )
+			fi
+			shift
+			shift
+		;;
+		*)
+			break
+		;;
+	esac
+done
 
-[ ! -d ${CHROOT_DIR} ]					&& _error_arg "CHROOT_DIR ${CHROOT_DIR} does not exist"
-[ "_${MY_ARCH_INDEX}" == "_999" ] 		&& _error_arg "TARGET_ARCH ${TARGET_ARCH} is not valid"
+TARGET_ARCH=""
+if [ "_$1" == "_" ]; then
+	_error_arg "TARGET ARCH is not passed in as argument"
+else
+	MY_ARCH_INDEX=$( _get_arch_index $1 )
+	if [ "_${MY_ARCH_INDEX}" == "_999" ]; then
+		_error_arg "TARGET ARCHITECTURE $1 is not valid"
+	else
+		echo "using Arch ${QEMU_ARCH[${MY_ARCH_INDEX}]}"
+		shift
+	fi
+fi
+
+SHARE=""
+if [ "_$1" == "_" ]; then
+	_error_arg "Shared directory is not passed in as argument"
+else
+	if [ ! -d $1 ]; then
+		_error_arg "Shared directory $1 does not exist"
+	else
+		SHARE=$(_prep_path $1)
+		shift
+	fi
+fi
+
+
+shift
+
 
 [ "_${CUSTOM_DOCKERFILE_DIR}" != "_" ] && [ -d ${CUSTOM_DOCKERFILE_DIR} ] && cp ${CUSTOM_DOCKERFILE_DIR}/* ./
 rm -f Dockerfile
@@ -223,8 +267,8 @@ rm -Rf ${TEMP_DIR}
 
 docker run -it \
 	--privileged \
-	-v ${CHROOT_DIR}:${CHROOT_DIR}:${MOUNT_TYPE} \
-	-w=${CHROOT_DIR} \
+	-v ${SHARE}:${SHARE}:${MOUNT_TYPE} \
+	-w=${SHARE} \
 	--user ${USER} \
 	"$@" \
 	${YOUR_REPO}/${QEMU_ARCH[${MY_ARCH_INDEX}]}
