@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -xe
+
 EXIT_CODE=0
 HOST="$(uname -m)"
 
@@ -14,7 +16,7 @@ QEMU_ARCH=(
 
 DOCKER_ARCH=(
 	"amd64"
-	"arm32v7"
+    "arm32v7"
 	"arm64v8"
 	"i386"
 	"ppc64le"
@@ -27,6 +29,9 @@ MOUNT_TYPE="shared"
 MOUNT_CMD=""
 YOUR_REPO=$(echo "${OWNER}_${USER}" | awk '{print tolower($0)}')
 
+CUSTOM_DOCKERFILE=""
+CUSTOM_DOCKERFILE_DIR=""
+
 # get the current user
 U_UID=$(getent passwd ${USER} | cut -d ':' -f 3)
 U_GID=$(getent passwd ${USER} | cut -d ':' -f 4)
@@ -36,6 +41,7 @@ U_SHELL=$(getent passwd ${USER} | cut -d ':' -f 7)
 CURRENT_DIR=${PWD}
 TEMP_DIR=$(mktemp -d)
 cd ${TEMP_DIR}
+echo "TEMP: ${TEMP_DIR}"
 echo ""
 
 _help() {
@@ -81,13 +87,14 @@ _parse_or_set_default() {
 }
 
 _prep_path() {
-	temp_input=$1
-	if [ "_${temp_input}" != "_" ]; then
-		temp_input=$(readlink -f ${temp_input} | sed 's/ /\\ /g')
+	if [ "_$1" != "_" ]; then 
+		temp_input=$(readlink -f $1 | sed 's/ /\\ /g')
+		if [ -e "${temp_input}" ]; then
+			echo "${temp_input}"
+		fi
+	else
+		echo ""
 	fi
-
-	[ "_${temp_input}" != "_" ] && [ -e "${temp_input}" ] && printf ${temp_input}
-	echo ""
 }
 
 _is_subdirectory_of() {
@@ -160,11 +167,11 @@ _make_base_dockerfile_template() {
 
 	FROM_DIRECTIVE=
 	U_VERSION="16.04"
-	CMD="CMD [ \"${U_BASH}\" ]"
+	CMD="CMD [ \"/bin/bash\" ]"
 
-	if [ "_${CUSTOM_DOCKERFILE}" != "_" ] && [ -f "/${CUSTOM_DOCKERFILE}" ]
+	if [ "_${CUSTOM_DOCKERFILE}" != "_" ] && [ -f "${CUSTOM_DOCKERFILE}" ]
 	then
-		U_VERSION=$(cat ${CUSTOM_DOCKERFILE} | grep -e "from" -e "FROM" | grep "ubuntu" | cut -d ':' -f 1)
+		U_VERSION=$(cat ${CUSTOM_DOCKERFILE} | grep -e "from" -e "FROM" | grep "ubuntu" | cut -d ':' -f 2)
 		CMD=""
 	fi
 	FROM_DIRECTIVE="FROM ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/ubuntu:${U_VERSION}"
@@ -182,17 +189,13 @@ ENV LANG en_US.utf8\n\
 RUN groupadd ${U_GROUP} || /bin/true\n\
 RUN groupmod -g ${U_GID} ${U_GROUP}\n\
 RUN useradd -u ${U_UID} -g ${U_GID} -G ${U_GROUP} -m -s /bin/bash ${USER}\n\
-CMD [ \"/bin/bash\" ]\n\
+${CMD}\n\
 " > Dockerfile
 
 	if [ "_${CUSTOM_DOCKERFILE}" != "_" ] && [ -f "${CUSTOM_DOCKERFILE}" ]
-	then
-		for line in $(cat ${CUSTOM_DOCKERFILE})
-		do
-			if [ "_$(echo ${line} | grep -e 'from' -E 'FROM')" == "_" ]; then
-				echo ${line} >> Dockerfile
-			fi
-		done
+	then 
+		sed 's/[fF][rR][oO][mM].*//g' ${CUSTOM_DOCKERFILE} >> Dockerfile
+		echo "" >> Dockerfile
 	fi
 }
 
@@ -202,34 +205,39 @@ CMD [ \"/bin/bash\" ]\n\
 
 #######################
 # input args
-
-# assure to use absolute path
-CUSTOM_DOCKERFILE=""
-CUSTOM_DOCKERFILE_DIR=""
-
-while true; do
+DONE=""
+while [ "_${DONE}" == "_" ]; do
 	case $1 in
 		-f|--file)
-			CUSTOM_DOCKERFILE=$(_prep_path $( _parse_or_set_default "$2" "" ))
-			if [ "_${CUSTOM_DOCKERFILE}" != "_" ]; then
-				CUSTOM_DOCKERFILE_DIR=$(_prep_path $(dirname ${CUSTOM_DOCKERFILE}) )
+			cd ${CURRENT_DIR}
+			if [ "_$2" != "_" ]; then
+				CUSTOM_DOCKERFILE=$(readlink -f $2 | sed 's/ /\\ /g')
+				if [ -e "${CUSTOM_DOCKERFILE}" ]; then
+					CUSTOM_DOCKERFILE_DIR=$(dirname "${CUSTOM_DOCKERFILE}")
+					echo "using a customized dockerfile: ${CUSTOM_DOCKERFILE}"
+				else
+					_error_arg "custom docker file is not valid: ${CUSTOM_DOCKERFILE}"
+				fi
+			else
+				_error_arg "custom docker file is not passed in but flag is passed in"
 			fi
+			cd ${TEMP_DIR}
 			shift
 			shift
 		;;
 		*)
-			break
+			DONE="1"
 		;;
 	esac
 done
 
 TARGET_ARCH=""
 if [ "_$1" == "_" ]; then
-	_error_arg "TARGET ARCH is not passed in as argument"
+	_error_arg "target architecture is not passed in as argument"
 else
 	MY_ARCH_INDEX=$( _get_arch_index $1 )
 	if [ "_${MY_ARCH_INDEX}" == "_999" ]; then
-		_error_arg "TARGET ARCHITECTURE $1 is not valid"
+		_error_arg "target architecture $1 is not valid"
 	else
 		echo "using Arch ${QEMU_ARCH[${MY_ARCH_INDEX}]}"
 		shift
@@ -248,14 +256,15 @@ else
 	fi
 fi
 
+if [ "_${CUSTOM_DOCKERFILE_DIR}" != "_" ] && [ -d ${CUSTOM_DOCKERFILE_DIR} ]; then
+	cp ${CUSTOM_DOCKERFILE_DIR}/* ./
+	rm -f Dockerfile
+fi
 
-shift
+if [ ! -f /usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ]; then
+	_get_docker_static_bin
+fi
 
-
-[ "_${CUSTOM_DOCKERFILE_DIR}" != "_" ] && [ -d ${CUSTOM_DOCKERFILE_DIR} ] && cp ${CUSTOM_DOCKERFILE_DIR}/* ./
-rm -f Dockerfile
-
-[ ! -f /usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ] && _get_docker_static_bin
 cp /usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ./
 
 _make_base_dockerfile_template
@@ -263,7 +272,7 @@ _make_base_dockerfile_template
 docker build -t ${YOUR_REPO}/${QEMU_ARCH[${MY_ARCH_INDEX}]} .
 
 cd ${CURRENT_DIR}
-rm -Rf ${TEMP_DIR}
+# rm -Rf ${TEMP_DIR}
 
 docker run -it \
 	--privileged \
