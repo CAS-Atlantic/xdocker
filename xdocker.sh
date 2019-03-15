@@ -119,6 +119,10 @@ _make_mount_cmd() {
 	done
 }
 
+_get_arch_list() {
+	docker search --format "{{.Name}}" ${DOCKER_ARCH[${MY_ARCH_INDEX}]} | grep ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/ | cut -d '/' -f 2   
+}
+
 _get_arch_index() {
 	# find index
 	INDEX=0
@@ -165,16 +169,20 @@ _make_base_dockerfile_template() {
 		*)			COPY_QUEMU_INTRPRTR_DIRECTIVE="";;
 	esac
 
-	FROM_DIRECTIVE=
-	U_VERSION="16.04"
-	CMD="CMD [ \"/bin/bash\" ]"
+	FROM_DIRECTIVE=""
+	CMD=""
 
 	if [ "_${CUSTOM_DOCKERFILE}" != "_" ] && [ -f "${CUSTOM_DOCKERFILE}" ]
 	then
-		U_VERSION=$(cat ${CUSTOM_DOCKERFILE} | grep -e "from" -e "FROM" | grep "ubuntu" | cut -d ':' -f 2)
+        INPUT_FROM=$(cat ${CUSTOM_DOCKERFILE} | grep -e "[fF][rR][oO][mM]" | sed 's/[fF][rR][oO][mM]\s*//g')
+		[ "_$(_get_arch_list | grep '$(echo ${INPUT_FROM} | cut -d ':' -f 1)')" != "_" ] || _error_arg "unsupported arch for custom dockerfile \"${INPUT_FROM}\""
+
+        FROM_DIRECTIVE="FROM ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/${INPUT_FROM}"
 		CMD=""
+    else
+        FROM_DIRECTIVE="FROM ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/ubuntu:16.04"
+        CMD="CMD [ \"/bin/bash\" ]"
 	fi
-	FROM_DIRECTIVE="FROM ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/ubuntu:${U_VERSION}"
 
 	echo -e "\
 ${FROM_DIRECTIVE}\n\
