@@ -16,7 +16,7 @@ QEMU_ARCH=(
 
 DOCKER_ARCH=(
 	"amd64"
-    "arm32v7"
+	"arm32v7"
 	"arm64v8"
 	"i386"
 	"ppc64le"
@@ -55,7 +55,7 @@ printf "\
 				This script only supports running ubuntu, but the version is pulled from your docker file
 
 		ARGS:
-			\"target architecture\" 		is one of ${ARCH_LIST[@]}
+			\"target architecture\" 		is one of ${QEMU_ARCH[@]}
 			\"shared directory\" 			is the directory to chroot into
 
 "
@@ -175,7 +175,7 @@ _make_base_dockerfile_template() {
 	if [ "_${CUSTOM_DOCKERFILE}" != "_" ] && [ -f "${CUSTOM_DOCKERFILE}" ]
 	then
         INPUT_FROM=$(cat ${CUSTOM_DOCKERFILE} | grep -e "[fF][rR][oO][mM]" | sed 's/[fF][rR][oO][mM]\s*//g')
-		[ "_$(_get_arch_list | grep '$(echo ${INPUT_FROM} | cut -d ':' -f 1)')" != "_" ] || _error_arg "unsupported arch for custom dockerfile \"${INPUT_FROM}\""
+		[ "_$(_get_arch_list | grep $(echo ${INPUT_FROM} | cut -d ':' -f 1))" != "_" ] || _error_arg "unsupported arch for custom dockerfile \"${INPUT_FROM}\""
 
         FROM_DIRECTIVE="FROM ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/${INPUT_FROM}"
 		CMD=""
@@ -265,7 +265,7 @@ else
 fi
 
 if [ "_${CUSTOM_DOCKERFILE_DIR}" != "_" ] && [ -d ${CUSTOM_DOCKERFILE_DIR} ]; then
-	cp ${CUSTOM_DOCKERFILE_DIR}/* ./
+	cp -r ${CUSTOM_DOCKERFILE_DIR}/* ./
 	rm -f Dockerfile
 fi
 
