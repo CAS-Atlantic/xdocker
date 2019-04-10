@@ -180,7 +180,7 @@ _make_base_dockerfile_template() {
         FROM_DIRECTIVE="FROM ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/${INPUT_FROM}"
 		CMD=""
     else
-        FROM_DIRECTIVE="FROM ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/ubuntu:16.04"
+        FROM_DIRECTIVE="FROM ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/ubuntu:18.04"
         CMD="CMD [ \"/bin/bash\" ]"
 	fi
 
@@ -188,11 +188,12 @@ _make_base_dockerfile_template() {
 ${FROM_DIRECTIVE}\n\
 ${COPY_QUEMU_INTRPRTR_DIRECTIVE}\n\
 \n\
-# build requirements\n\
-RUN apt-get update -y\n\
-RUN apt-get install -y locales bash\n\
-RUN localedef -i en_US -c -f UTF-8 -A /usr/share/locale/locale.alias en_US.UTF-8\n\
-ENV LANG en_US.utf8\n\
+ENV DEBIAN_FRONTEND=noninteractive\n\
+RUN apt-get update -q -q\n\
+RUN apt-get install -y locales locales-all\n\
+ENV LC_ALL en_US.UTF-8\n\
+ENV LANG en_US.UTF-8\n\
+ENV LANGUAGE en_US.UTF-8\n\
 \n\
 RUN groupadd ${U_GROUP} || /bin/true\n\
 RUN groupmod -g ${U_GID} ${U_GROUP}\n\
@@ -263,6 +264,7 @@ else
 		shift
 	fi
 fi
+
 
 if [ "_${CUSTOM_DOCKERFILE_DIR}" != "_" ] && [ -d ${CUSTOM_DOCKERFILE_DIR} ]; then
 	cp -r ${CUSTOM_DOCKERFILE_DIR}/* ./
