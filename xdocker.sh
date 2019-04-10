@@ -334,7 +334,7 @@ rm -Rf ${TEMP_DIR}
 
 docker run -it \
 	--privileged \
-	-v ${SHARE}/:${SHARE}/:${MOUNT_TYPE} \
+	--mount type=bind,source=${SHARE},target=${SHARE},bind-propagation=${MOUNT_TYPE} \
 	--user ${USER} \
 	"$@" \
 	${FINAL_TAG}
