@@ -28,7 +28,7 @@ TARGET_ARCH=""
 
 MY_ARCH_INDEX=999
 OWNER="xdocker_${HOST}"
-MOUNT_TYPE="shared"
+MOUNT_TYPE="rshared"
 MOUNT_CMD=""
 YOUR_REPO=$(echo "${USER}" | awk '{print tolower($0)}')
 
