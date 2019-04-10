@@ -332,9 +332,19 @@ _build_dir_spec_dockerfile
 
 rm -Rf ${TEMP_DIR}
 
+echo "################################
+######################################
+BE AWARE, If you are using an NFS mount with rootsquash, you cannot mount an NFS subdirectory, only top level
+######################################
+Entering the Chrooted system
+"
 docker run -it \
 	--privileged \
 	--mount type=bind,source=${SHARE},target=${SHARE},bind-propagation=${MOUNT_TYPE} \
 	--user ${USER} \
 	"$@" \
 	${FINAL_TAG}
+
+echo "################################
+EXITING the Chrooted system
+"
