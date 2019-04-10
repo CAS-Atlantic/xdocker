@@ -243,7 +243,8 @@ _make_dir_spec_dockerfile() {
 	CMD="$(cat ${TEMP_DIR}/Base.Dockerfile | grep CMD)"
 	echo -e "\
 FROM ${USER_TAG}\n\
-RUN mkdir -p ${SHARE}
+RUN mkdir -p ${SHARE}\n\
+WORKDIR ${SHARE}\n\
 ${CMD}\n\
 " > ${TEMP_DIR}/Dir.Dockerfile
 }
@@ -334,7 +335,6 @@ rm -Rf ${TEMP_DIR}
 docker run -it \
 	--privileged \
 	-v ${SHARE}:${SHARE}:${MOUNT_TYPE} \
-	-w=${SHARE} \
 	--user ${USER} \
 	"$@" \
 	${FINAL_TAG}
