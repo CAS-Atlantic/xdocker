@@ -23,11 +23,19 @@ DOCKER_ARCH=(
 	"s390x"
 )
 
+SHARE=""
+TARGET_ARCH=""
+
 MY_ARCH_INDEX=999
 OWNER="xdocker_${HOST}"
 MOUNT_TYPE="shared"
 MOUNT_CMD=""
-YOUR_REPO=$(echo "${OWNER}_${USER}" | awk '{print tolower($0)}')
+YOUR_REPO=$(echo "${USER}" | awk '{print tolower($0)}')
+
+
+BASE_TAG=""
+USER_TAG=""
+FINAL_TAG=""
 
 CUSTOM_DOCKERFILE=""
 CUSTOM_DOCKERFILE_DIR=""
@@ -38,11 +46,18 @@ U_GID=$(getent passwd ${USER} | cut -d ':' -f 4)
 U_GROUP=$(getent group  ${U_GID} | cut -d ':' -f 1)
 U_SHELL=$(getent passwd ${USER} | cut -d ':' -f 7)
 
+
+
 CURRENT_DIR=${PWD}
 TEMP_DIR=$(mktemp -d)
-cd ${TEMP_DIR}
+BUILD_CONTEXT_DIR="${TEMP_DIR}/build/"
+mkdir -p ${BUILD_CONTEXT_DIR}
 echo "TEMP: ${TEMP_DIR}"
 echo ""
+
+_concat_path() {
+	echo $1 | sed s+/++g
+}
 
 _help() {
 printf "\
@@ -154,14 +169,13 @@ _clean_docker() {
 }
 
 _get_docker_static_bin() {
-	git clone https://github.com/multiarch/qemu-user-static.git
-	cd qemu-user-static/register
-	docker build -t ${OWNER}/register .
+	BIN_TEMP_DIR=$(mktemp -d)
+	git clone https://github.com/multiarch/qemu-user-static.git ${BIN_TEMP_DIR}/
+	docker build -t ${OWNER}/register -f ${BIN_TEMP_DIR}/qemu-user-static/register/Dockerfile ${BIN_TEMP_DIR}/qemu-user-static/register
 	docker run --rm --privileged ${OWNER}/register --reset
-	cd ${TEMP_DIR}
 }
 
-_make_base_dockerfile_template() {
+_make_base_dockerfile() {
 
 	COPY_QUEMU_INTRPRTR_DIRECTIVE=""
 	case x86_64 in \
@@ -194,20 +208,51 @@ RUN apt-get install -y locales locales-all\n\
 ENV LC_ALL en_US.UTF-8\n\
 ENV LANG en_US.UTF-8\n\
 ENV LANGUAGE en_US.UTF-8\n\
-\n\
+${CMD}\n\
+" > ${TEMP_DIR}/Base.Dockerfile
+
+	if [ "_${CUSTOM_DOCKERFILE}" != "_" ] && [ -f "${CUSTOM_DOCKERFILE}" ]
+	then 
+		sed 's/[fF][rR][oO][mM].*//g' ${CUSTOM_DOCKERFILE} >> ${TEMP_DIR}/Base.Dockerfile
+		echo "" >> ${TEMP_DIR}/Base.Dockerfile
+	fi
+}
+
+_build_base_dockerfile() {
+	BASE_TAG="${OWNER}/${QEMU_ARCH[${MY_ARCH_INDEX}]}"
+	docker build -t "${BASE_TAG}" -f ${TEMP_DIR}/Base.Dockerfile ${BUILD_CONTEXT_DIR}
+}
+
+_make_user_spec_dockerfile() {
+	CMD="$(cat ${TEMP_DIR}/Base.Dockerfile | grep CMD)"
+	echo -e "\
+FROM ${BASE_TAG}\n\
 RUN groupadd ${U_GROUP} || /bin/true\n\
 RUN groupmod -g ${U_GID} ${U_GROUP}\n\
 RUN useradd -u ${U_UID} -g ${U_GID} -G ${U_GROUP} -m -s /bin/bash ${USER}\n\
 ${CMD}\n\
-" > Dockerfile
-
-	if [ "_${CUSTOM_DOCKERFILE}" != "_" ] && [ -f "${CUSTOM_DOCKERFILE}" ]
-	then 
-		sed 's/[fF][rR][oO][mM].*//g' ${CUSTOM_DOCKERFILE} >> Dockerfile
-		echo "" >> Dockerfile
-	fi
+" > ${TEMP_DIR}/User.Dockerfile
 }
 
+_build_user_spec_dockerfile() {
+	USER_TAG="${BASE_TAG}_${YOUR_REPO}"
+	docker build -t ${USER_TAG} -f ${TEMP_DIR}/User.Dockerfile ${BUILD_CONTEXT_DIR}
+}
+
+_make_dir_spec_dockerfile() {
+	CMD="$(cat ${TEMP_DIR}/Base.Dockerfile | grep CMD)"
+	echo -e "\
+FROM ${USER_TAG}\n\
+RUN mkdir -p ${SHARE}
+${CMD}\n\
+" > ${TEMP_DIR}/Dir.Dockerfile
+}
+
+_build_dir_spec_dockerfile() {
+	SHARE_CONCAT=$(_concat_path ${SHARE})
+	FINAL_TAG="${USER_TAG}_${SHARE_CONCAT}"
+	docker build -t ${FINAL_TAG} -f ${TEMP_DIR}/Dir.Dockerfile ${BUILD_CONTEXT_DIR}
+}
 
 ###########################################
 # begin
@@ -218,7 +263,6 @@ DONE=""
 while [ "_${DONE}" == "_" ]; do
 	case $1 in
 		-f|--file)
-			cd ${CURRENT_DIR}
 			if [ "_$2" != "_" ]; then
 				CUSTOM_DOCKERFILE=$(readlink -f $2 | sed 's/ /\\ /g')
 				if [ -e "${CUSTOM_DOCKERFILE}" ]; then
@@ -230,7 +274,6 @@ while [ "_${DONE}" == "_" ]; do
 			else
 				_error_arg "custom docker file is not passed in but flag is passed in"
 			fi
-			cd ${TEMP_DIR}
 			shift
 			shift
 		;;
@@ -275,14 +318,18 @@ if [ ! -f /usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ]; then
 	_get_docker_static_bin
 fi
 
-cp /usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ./
+cp /usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ${TEMP_DIR}/build/
 
-_make_base_dockerfile_template
+_make_base_dockerfile
+_build_base_dockerfile
 
-docker build -t ${YOUR_REPO}/${QEMU_ARCH[${MY_ARCH_INDEX}]} .
+_make_user_spec_dockerfile
+_build_user_spec_dockerfile
 
-cd ${CURRENT_DIR}
-# rm -Rf ${TEMP_DIR}
+_make_dir_spec_dockerfile
+_build_dir_spec_dockerfile
+
+rm -Rf ${TEMP_DIR}
 
 docker run -it \
 	--privileged \
@@ -290,4 +337,4 @@ docker run -it \
 	-w=${SHARE} \
 	--user ${USER} \
 	"$@" \
-	${YOUR_REPO}/${QEMU_ARCH[${MY_ARCH_INDEX}]}
+	${FINAL_TAG}
