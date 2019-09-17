@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -xe
 
 EXIT_CODE=0
 HOST="$(uname -m)"
@@ -202,12 +202,6 @@ _make_base_dockerfile() {
 ${FROM_DIRECTIVE}\n\
 ${COPY_QUEMU_INTRPRTR_DIRECTIVE}\n\
 \n\
-ENV DEBIAN_FRONTEND=noninteractive\n\
-RUN apt-get update -q -q\n\
-RUN apt-get install -y locales locales-all\n\
-ENV LC_ALL en_US.UTF-8\n\
-ENV LANG en_US.UTF-8\n\
-ENV LANGUAGE en_US.UTF-8\n\
 ${CMD}\n\
 " > ${TEMP_DIR}/Base.Dockerfile
 
@@ -332,11 +326,22 @@ _build_dir_spec_dockerfile
 
 rm -Rf ${TEMP_DIR}
 
-echo "################################
-######################################
+echo "===============================
+Docker images created for this build:
+ - ${FINAL_TAG}
+ - ${USER_TAG}
+ - ${BASE_TAG}
+
+--------------------------------
 BE AWARE, If you are using an NFS mount with rootsquash, you cannot mount an NFS subdirectory, only top level
-######################################
-Entering the Chrooted system
+--------------------------------
+
+Starting 
+ image: ${FINAL_TAG} 
+ mount: ${SHARE} 
+ arch:  ${QEMU_ARCH[${MY_ARCH_INDEX}]}
+
+STARTING ####################
 "
 docker run -it \
 	--privileged \
@@ -345,6 +350,6 @@ docker run -it \
 	"$@" \
 	${FINAL_TAG}
 
-echo "################################
-EXITING the Chrooted system
+echo "
+EXITING ######################
 "
