@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -xe
+set -e
 
 EXIT_CODE=0
 HOST="$(uname -m)"
