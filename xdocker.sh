@@ -134,10 +134,6 @@ _make_mount_cmd() {
 	done
 }
 
-_get_arch_list() {
-	docker search --format "{{.Name}}" ${DOCKER_ARCH[${MY_ARCH_INDEX}]} | grep ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/ | cut -d '/' -f 2   
-}
-
 _get_arch_index() {
 	# find index
 	INDEX=0
@@ -183,23 +179,33 @@ _make_base_dockerfile() {
 		*)			COPY_QUEMU_INTRPRTR_DIRECTIVE="";;
 	esac
 
-	FROM_DIRECTIVE=""
 	CMD=""
 
 	if [ "_${CUSTOM_DOCKERFILE}" != "_" ] && [ -f "${CUSTOM_DOCKERFILE}" ]
 	then
         INPUT_FROM=$(cat ${CUSTOM_DOCKERFILE} | grep -e "[fF][rR][oO][mM]" | sed 's/[fF][rR][oO][mM]\s*//g')
-		[ "_$(_get_arch_list | grep $(echo ${INPUT_FROM} | cut -d ':' -f 1))" != "_" ] || _error_arg "unsupported arch for custom dockerfile \"${INPUT_FROM}\""
-
-        FROM_DIRECTIVE="FROM ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/${INPUT_FROM}"
 		CMD=""
     else
-        FROM_DIRECTIVE="FROM ${DOCKER_ARCH[${MY_ARCH_INDEX}]}/ubuntu:18.04"
+        INPUT_FROM="${DOCKER_ARCH[${MY_ARCH_INDEX}]}/ubuntu:18.04"
         CMD="CMD [ \"/bin/bash\" ]"
 	fi
 
+	FROM_DIRECTIVE="${DOCKER_ARCH[${MY_ARCH_INDEX}]}/${INPUT_FROM}"
+	IMAGE_FOUND="false"
+
+	docker pull ${FROM_DIRECTIVE} && IMAGE_FOUND="true"
+	if [ "_${IMAGE_FOUND}" != "_true" ]
+	then
+		FROM_DIRECTIVE="${QEMU_ARCH[${MY_ARCH_INDEX}]}/${INPUT_FROM}"
+		docker pull ${FROM_DIRECTIVE} && IMAGE_FOUND="true"
+		if [ "_${IMAGE_FOUND}" != "_true" ]
+		then
+			_error_arg "unsupported arch for custom dockerfile \"${INPUT_FROM}\""
+		fi
+	fi
+
 	echo -e "\
-${FROM_DIRECTIVE}\n\
+FROM ${FROM_DIRECTIVE}\n\
 ${COPY_QUEMU_INTRPRTR_DIRECTIVE}\n\
 \n\
 ${CMD}\n\
