@@ -354,6 +354,8 @@ STARTING ####################
 "
 docker run -it \
 	--privileged \
+	--cap-add=SYS_PTRACE \
+	--security-opt seccomp=unconfined \
 	--mount type=bind,source=${SHARE},target=${SHARE},bind-propagation=${MOUNT_TYPE} \
 	--user ${USER} \
 	"$@" \
