@@ -165,10 +165,12 @@ _clean_docker() {
 }
 
 _get_docker_static_bin() {
-	BIN_TEMP_DIR=$(mktemp -d)
-	git clone https://github.com/multiarch/qemu-user-static.git ${BIN_TEMP_DIR}/
-	docker build -t ${OWNER}/register -f ${BIN_TEMP_DIR}/qemu-user-static/register/Dockerfile ${BIN_TEMP_DIR}/qemu-user-static/register
-	docker run --rm --privileged ${OWNER}/register --reset
+	pushd $(mktemp -d)
+	git clone https://github.com/multiarch/qemu-user-static.git ./
+	git reset --hard 20674ec
+	docker build -t qemu-user-static-bin-register -f register/Dockerfile register
+	docker run --rm --privileged qemu-user-static-bin-register --reset
+	popd
 }
 
 _make_base_dockerfile() {
@@ -315,7 +317,8 @@ if [ "_${CUSTOM_DOCKERFILE_DIR}" != "_" ] && [ -d ${CUSTOM_DOCKERFILE_DIR} ]; th
 	rm -f Dockerfile
 fi
 
-if [ ! -f /usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ]; then
+# register static binaries
+if [ "0" == "$(docker images qemu-user-static-bin-register -q | wc -l)" ]; then
 	_get_docker_static_bin
 fi
 
