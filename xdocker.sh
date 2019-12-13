@@ -56,7 +56,7 @@ echo "TEMP: ${TEMP_DIR}"
 echo ""
 
 _concat_path() {
-	echo $1 | sed s+/++g
+	echo $1 | sed s+/++g | awk '{print tolower($0)}'
 }
 
 _help() {
