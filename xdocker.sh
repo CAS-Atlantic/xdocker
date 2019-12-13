@@ -229,6 +229,7 @@ _make_user_spec_dockerfile() {
 	CMD="$(cat ${TEMP_DIR}/Base.Dockerfile | grep CMD)"
 	echo -e "\
 FROM ${BASE_TAG}\n\
+ENV XDOCKER=${QEMU_ARCH}\n\
 RUN groupadd ${U_GROUP} || /bin/true\n\
 RUN groupmod -g ${U_GID} ${U_GROUP}\n\
 RUN useradd -u ${U_UID} -g ${U_GID} -G ${U_GROUP} -m -s /bin/bash ${USER}\n\
