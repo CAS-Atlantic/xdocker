@@ -32,10 +32,10 @@ int main (int argc, const char *argv[])
 		switch (argv[1][0])
 		{
 			case 'u':   printf("%s\n",	pwd->pw_name);  return 0;
-			case 'i':	printf("%zu\n", uid);			return 0;
-			case 'g':   printf("%zu\n", pwd->pw_gid);   return 0;
+			case 'i':	printf("%u\n", uid);			return 0;
+			case 'g':   printf("%u\n", pwd->pw_gid);   return 0;
 			case 'n':   printf("%s\n",	grd->gr_name);  return 0;
-			case 's':   printf("%zu\n", pwd->pw_shell); return 0;
+			case 's':   printf("%s\n", pwd->pw_shell); return 0;
 			default:    break;
 		}
 	}
