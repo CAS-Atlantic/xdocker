@@ -50,7 +50,7 @@ compile_getent() {
 	if [ ! -f ${GETENT} ]; then
 		mkdir -p $(dirname ${GETENT})
 		CC=$( which gcc )
-		[ "$?" != "0" ] && CC=$( which clang ) || /bin/true
+		[ "$?" != "0" ] && CC=$( which clang ) || true
 
 		if [ "$?" != "0" ]; then
 			echo "Unable to find a C compiler, Exiting"
@@ -288,7 +288,7 @@ _make_user_spec_dockerfile() {
 	echo -e "\
 FROM ${BASE_TAG}\n\
 ENV XDOCKER=${QEMU_ARCH}\n\
-RUN groupadd -f -g ${U_GID} ${U_GROUP} || /bin/true\n\
+RUN groupadd -f -g ${U_GID} ${U_GROUP} || true\n\
 RUN useradd -u ${U_UID} -g ${U_GID} -G ${U_GROUP} -m -s /bin/bash ${U_USER}\n\
 ${CMD}\n\
 " > ${TEMP_DIR}/User.Dockerfile
