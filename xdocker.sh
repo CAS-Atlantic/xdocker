@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -e
+set -xe
 
 EXIT_CODE=0
 
@@ -17,22 +17,31 @@ init_getent() {
 cat << EOF > my_getent.c
 #include <stdio.h>
 #include <sys/types.h>
+#include <unistd.h>
 #include <pwd.h>
 #include <grp.h>
-void getuid(const char *name)    { printf("%s\n", getpwnam(name)->pw_uid); }
-void getgid(const char *name)    { printf("%zu\n", getpwnam(name)->pw_gid); }
-void getgroup(const char *name)  { printf("%s\n", getgrgid(getpwnam(name)->pw_gid)->gr_name); }
-void getshell(const char *name)  { printf("%zu\n", getpwnam(name)->pw_shell); }
-void main (int argc, const char *argv[])
+
+int main (int argc, const char *argv[])
 {
-    switch (argv[0][1])
-    {
-        case 'u':   getuid(argv[1]);    break;
-        case 'g':   getuid(argv[1]);    break;
-        case 'n':   getgroup(argv[1]);  break;
-        case 's':   getshell(argv[1]);  break;
-        default:    break;
-    }
+	uid_t uid = getuid();
+	struct passwd *pwd = getpwuid(uid);
+	struct group *grd = getgrgid(pwd->pw_gid);
+
+	if (argc == 2)
+	{
+		switch (argv[1][0])
+		{
+			case 'u':   printf("%s\n",	pwd->pw_name);  return 0;
+			case 'i':	printf("%zu\n", uid);			return 0;
+			case 'g':   printf("%zu\n", pwd->pw_gid);   return 0;
+			case 'n':   printf("%s\n",	grd->gr_name);  return 0;
+			case 's':   printf("%zu\n", pwd->pw_shell); return 0;
+			default:    break;
+		}
+	}
+
+	printf("Expected 1 argument in the form [u|i|g|n|s]");
+	return 1;
 }
 EOF
 }
@@ -82,7 +91,6 @@ MY_ARCH_INDEX=999
 OWNER="xdocker_${HOST_ARCH}"
 MOUNT_TYPE="rshared"
 MOUNT_CMD=""
-YOUR_REPO=$(echo "${USER}" | awk '{print tolower($0)}')
 
 BASE_TAG=""
 USER_TAG=""
@@ -94,10 +102,13 @@ CUSTOM_DOCKERFILE_DIR=""
 compile_getent
 
 # get the current user
-U_UID=$(${GETENT} -u ${USER})
-U_GID=$(${GETENT} -g ${USER})
-U_GROUP=$(${GETENT} -n ${USER})
-U_SHELL=$(${GETENT} -s ${USER})
+U_USER=$(${GETENT} u)
+U_UID=$(${GETENT} i)
+U_GID=$(${GETENT} g)
+U_GROUP=$(${GETENT} n)
+U_SHELL=$(${GETENT} s)
+
+YOUR_REPO=$(echo "${U_USER}" | awk '{print tolower($0)}')
 
 CURRENT_DIR=${PWD}
 TEMP_DIR=$(mktemp -d)
@@ -278,7 +289,7 @@ _make_user_spec_dockerfile() {
 FROM ${BASE_TAG}\n\
 ENV XDOCKER=${QEMU_ARCH}\n\
 RUN groupadd -f -g ${U_GID} ${U_GROUP} || /bin/true\n\
-RUN useradd -u ${U_UID} -g ${U_GID} -G ${U_GROUP} -m -s /bin/bash ${USER}\n\
+RUN useradd -u ${U_UID} -g ${U_GID} -G ${U_GROUP} -m -s /bin/bash ${U_USER}\n\
 ${CMD}\n\
 " > ${TEMP_DIR}/User.Dockerfile
 }
@@ -404,7 +415,7 @@ docker run -it \
 	--cap-add=SYS_PTRACE \
 	--security-opt seccomp=unconfined \
 	--mount type=bind,source=${SHARE},target=${SHARE},bind-propagation=${MOUNT_TYPE} \
-	--user ${USER} \
+	--user ${U_USER} \
 	"$@" \
 	${FINAL_TAG}
 
