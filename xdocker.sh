@@ -9,6 +9,13 @@ mkdir -p ${TMPDIR}
 
 GETENT="${PWD}/bin/my_getent"
 
+abspath() {             
+	changed_dir="true"            
+    pushd "$(dirname $1)" &> /dev/null || changed_dir="false"
+	echo "${PWD}/$(basename $1)"
+    [ "${changed_dir}" == "true" ] && popd &> /dev/null 
+}
+
 _concat_path() {
 	echo $1 | sed s+/++g | awk '{print tolower($0)}'
 }
@@ -161,7 +168,7 @@ _parse_or_set_default() {
 
 _prep_path() {
 	if [ "_$1" != "_" ]; then 
-		temp_input=$(readlink -f $1 | sed 's/ /\\ /g')
+		temp_input=$(abspath $1 | sed 's/ /\\ /g')
 		if [ -e "${temp_input}" ]; then
 			echo "${temp_input}"
 		fi
@@ -325,7 +332,7 @@ while [ "_${DONE}" == "_" ]; do
 	case $1 in
 		-f|--file)
 			if [ "_$2" != "_" ]; then
-				CUSTOM_DOCKERFILE=$(readlink -f $2 | sed 's/ /\\ /g')
+				CUSTOM_DOCKERFILE=$(abspath $2 | sed 's/ /\\ /g')
 				if [ -e "${CUSTOM_DOCKERFILE}" ]; then
 					CUSTOM_DOCKERFILE_DIR=$(dirname "${CUSTOM_DOCKERFILE}")
 					echo "using a customized dockerfile: ${CUSTOM_DOCKERFILE}"
