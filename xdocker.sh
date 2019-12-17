@@ -2,8 +2,55 @@
 
 set -e
 
+_concat_path() {
+	echo $1 | sed s+/++g | awk '{print tolower($0)}'
+}
+
+init_getent() {
+cat << EOF > my_getent.c
+#include <stdio.h>
+#include <sys/types.h>
+#include <pwd.h>
+#include <grp.h>
+void getuid(const char *name)    { printf("%s\n", getpwnam(name)->pw_uid); }
+void getgid(const char *name)    { printf("%zu\n", getpwnam(name)->pw_gid); }
+void getgroup(const char *name)  { printf("%s\n", getgrgid(getpwnam(name)->pw_gid)->gr_name); }
+void getshell(const char *name)  { printf("%zu\n", getpwnam(name)->pw_shell); }
+void main (int argc, const char *argv[])
+{
+    switch (argv[0][1])
+    {
+        case 'u':   getuid(argv[1]);    break;
+        case 'g':   getuid(argv[1]);    break;
+        case 'n':   getgroup(argv[1]);  break;
+        case 's':   getshell(argv[1]);  break;
+        default:    break;
+    }
+}
+EOF
+}
+
+compile_getent() {
+	CC=$( which gcc )
+	[ "$?" != "0" ] && CC=$( which clang ) || /bin/true
+
+	if [ "$?" != "0" ]; then
+		echo "Unable to find a C compiler, Exiting"
+		exit -1
+	fi
+
+	init_getent
+	${CC} my_getent.c -o my_getent
+	rm my_getent.c
+}
+
 EXIT_CODE=0
-HOST="$(uname -m)"
+
+HOST_ARCH="$(uname -m)"
+HOST_OS="$(uname -s)"
+
+TMPDIR="${PWD}/tmp"
+mkdir -p ${TMPDIR}
 
 QEMU_ARCH=(
 	"x86_64"
@@ -27,11 +74,10 @@ SHARE=""
 TARGET_ARCH=""
 
 MY_ARCH_INDEX=999
-OWNER="xdocker_${HOST}"
+OWNER="xdocker_${HOST_ARCH}"
 MOUNT_TYPE="rshared"
 MOUNT_CMD=""
 YOUR_REPO=$(echo "${USER}" | awk '{print tolower($0)}')
-
 
 BASE_TAG=""
 USER_TAG=""
@@ -40,13 +86,13 @@ FINAL_TAG=""
 CUSTOM_DOCKERFILE=""
 CUSTOM_DOCKERFILE_DIR=""
 
+compile_getent
+
 # get the current user
-U_UID=$(getent passwd ${USER} | cut -d ':' -f 3)
-U_GID=$(getent passwd ${USER} | cut -d ':' -f 4)
-U_GROUP=$(getent group  ${U_GID} | cut -d ':' -f 1)
-U_SHELL=$(getent passwd ${USER} | cut -d ':' -f 7)
-
-
+U_UID=$(./my_getent -u ${USER})
+U_GID=$(./my_getent -g ${USER})
+U_GROUP=$(./my_getent -n ${USER})
+U_SHELL=$(./my_getent -s ${USER})
 
 CURRENT_DIR=${PWD}
 TEMP_DIR=$(mktemp -d)
@@ -54,10 +100,6 @@ BUILD_CONTEXT_DIR="${TEMP_DIR}/build/"
 mkdir -p ${BUILD_CONTEXT_DIR}
 echo "TEMP: ${TEMP_DIR}"
 echo ""
-
-_concat_path() {
-	echo $1 | sed s+/++g | awk '{print tolower($0)}'
-}
 
 _help() {
 printf "\
@@ -177,7 +219,7 @@ _make_base_dockerfile() {
 
 	COPY_QUEMU_INTRPRTR_DIRECTIVE=""
 	case x86_64 in \
-		${HOST}) 	COPY_QUEMU_INTRPRTR_DIRECTIVE="COPY qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static /usr/bin/";;
+		${HOST_ARCH}) 	COPY_QUEMU_INTRPRTR_DIRECTIVE="COPY qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static /usr/bin/";;
 		*)			COPY_QUEMU_INTRPRTR_DIRECTIVE="";;
 	esac
 
@@ -230,8 +272,7 @@ _make_user_spec_dockerfile() {
 	echo -e "\
 FROM ${BASE_TAG}\n\
 ENV XDOCKER=${QEMU_ARCH}\n\
-RUN groupadd ${U_GROUP} || /bin/true\n\
-RUN groupmod -g ${U_GID} ${U_GROUP}\n\
+RUN groupadd -f -g ${U_GID} ${U_GROUP} || /bin/true\n\
 RUN useradd -u ${U_UID} -g ${U_GID} -G ${U_GROUP} -m -s /bin/bash ${USER}\n\
 ${CMD}\n\
 " > ${TEMP_DIR}/User.Dockerfile
