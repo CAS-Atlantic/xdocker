@@ -2,6 +2,13 @@
 
 set -e
 
+EXIT_CODE=0
+
+TMPDIR="${PWD}/tmp"
+mkdir -p ${TMPDIR}
+
+GETENT="${PWD}/bin/my_getent"
+
 _concat_path() {
 	echo $1 | sed s+/++g | awk '{print tolower($0)}'
 }
@@ -31,26 +38,24 @@ EOF
 }
 
 compile_getent() {
-	CC=$( which gcc )
-	[ "$?" != "0" ] && CC=$( which clang ) || /bin/true
+	if [ ! -f ${GETENT} ]; then
+		mkdir -p $(dirname ${GETENT})
+		CC=$( which gcc )
+		[ "$?" != "0" ] && CC=$( which clang ) || /bin/true
 
-	if [ "$?" != "0" ]; then
-		echo "Unable to find a C compiler, Exiting"
-		exit -1
+		if [ "$?" != "0" ]; then
+			echo "Unable to find a C compiler, Exiting"
+			exit -1
+		fi
+
+		init_getent
+		${CC} my_getent.c -o ${GETENT}
+		rm my_getent.c
 	fi
-
-	init_getent
-	${CC} my_getent.c -o my_getent
-	rm my_getent.c
 }
-
-EXIT_CODE=0
 
 HOST_ARCH="$(uname -m)"
 HOST_OS="$(uname -s)"
-
-TMPDIR="${PWD}/tmp"
-mkdir -p ${TMPDIR}
 
 QEMU_ARCH=(
 	"x86_64"
@@ -89,10 +94,10 @@ CUSTOM_DOCKERFILE_DIR=""
 compile_getent
 
 # get the current user
-U_UID=$(./my_getent -u ${USER})
-U_GID=$(./my_getent -g ${USER})
-U_GROUP=$(./my_getent -n ${USER})
-U_SHELL=$(./my_getent -s ${USER})
+U_UID=$(${GETENT} -u ${USER})
+U_GID=$(${GETENT} -g ${USER})
+U_GROUP=$(${GETENT} -n ${USER})
+U_SHELL=$(${GETENT} -s ${USER})
 
 CURRENT_DIR=${PWD}
 TEMP_DIR=$(mktemp -d)
