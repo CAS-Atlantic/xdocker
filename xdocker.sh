@@ -237,7 +237,7 @@ _get_qemu_user_static_deb() {
 	wget "${URL}"
 	ar vx "${PACKAGE}"
 	tar xvf data.tar.xz 
-	mv -t $1 usr/bin/*
+	mv usr/bin/* $1
 	popd
 }
 
