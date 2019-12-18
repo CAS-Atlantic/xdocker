@@ -500,6 +500,7 @@ case ${HOST_OS} in
 		;;
 esac
 
+EXEC=$(echo ${EXEC} | tr -s "[:blank:]")
 echo "STARTING #################### 
 ${EXEC}"
 
