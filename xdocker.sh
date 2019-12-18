@@ -1,6 +1,6 @@
 #!/bin/bash
 
-set -xe
+set -e
 
 EXIT_CODE=0
 QEMU_USER_STATIC_VERSION="4.2-1"
@@ -124,10 +124,11 @@ _get_arch_index() {
 }
 
 HOST_ARCH_INDEX="$(_get_arch_index "$(uname -m)")"
+HOST_OS="$(uname -s)"
 
 SHARE=""
 OWNER="xdocker_${QEMU_ARCH[${HOST_ARCH_INDEX}]}"
-MOUNT_TYPE="rshared"
+
 BASE_TAG=""
 USER_TAG=""
 FINAL_TAG=""
@@ -453,7 +454,8 @@ Docker images created for this build:
  - ${BASE_TAG}
 
 --------------------------------
-BE AWARE, If you are using an NFS mount with rootsquash, you cannot mount an NFS subdirectory, only top level
+BE AWARE, If you are using an NFS mount with no_subtree_check, or defaults, you cannot mount an NFS subdirectory, only top level
+consider adding 'subtree_check' to your nfs export to mount subdirectory
 --------------------------------
 
 Starting 
@@ -461,17 +463,51 @@ Starting
  mount: ${SHARE} 
  arch:  ${QEMU_ARCH[${MY_ARCH_INDEX}]}
 
-STARTING ####################
 "
-docker run -it \
-	--privileged \
-	--cap-add=SYS_PTRACE \
-	--security-opt seccomp=unconfined \
-	--mount type=bind,source=${SHARE},target=${SHARE},bind-propagation=${MOUNT_TYPE} \
-	--user ${U_USER} \
-	"$@" \
-	${FINAL_TAG}
+
+EXEC=""
+case ${HOST_OS} in
+	Darwin)
+		EXEC="docker run -it \
+			--privileged \
+			--cap-add=SYS_PTRACE \
+			--security-opt seccomp=unconfined \
+			-v ${SHARE}:${SHARE} \
+			--user ${U_USER} \
+			"$@" \
+			${FINAL_TAG}"
+		;;
+	Linux)
+		EXEC="docker run -it \
+			--privileged \
+			--cap-add=SYS_PTRACE \
+			--security-opt seccomp=unconfined \
+			--mount type=bind,source=${SHARE},target=${SHARE},bind-propagation=rshared \
+			--user ${U_USER} \
+			"$@" \
+			${FINAL_TAG}"
+		;;
+	*)
+		echo "Untested host! ${HOST_OS}, please consider submitting your result so we can improve"
+		EXEC="docker run -it \
+			--privileged \
+			--cap-add=SYS_PTRACE \
+			--security-opt seccomp=unconfined \
+			--mount type=bind,source=${SHARE},target=${SHARE},bind-propagation=rshared \
+			--user ${U_USER} \
+			"$@" \
+			${FINAL_TAG}"
+		;;
+esac
+
+echo "STARTING #################### 
+${EXEC}"
+
+${EXEC}
+EXIT_CODE=$?
 
 echo "
 EXITING ######################
 "
+
+exit ${EXIT_CODE}
