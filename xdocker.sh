@@ -3,12 +3,11 @@
 set -xe
 
 EXIT_CODE=0
-
+QEMU_USER_STATIC_VERSION="4.2-1"
 TMPDIR="${PWD}/tmp"
 mkdir -p ${TMPDIR}
 
 LOCAL_BIN="${PWD}/bin"
-
 GETENT="${LOCAL_BIN}/my_getent"
 
 abspath() {             
@@ -239,7 +238,7 @@ _make_mount_cmd() {
 
 _get_qemu_user_static_deb() {
 	pushd $(mktemp -d)
-	PACKAGE="qemu-user-static_4.2-1_${DEBIAN_ARCH[${HOST_ARCH_INDEX}]}.deb"
+	PACKAGE="qemu-user-static_${QEMU_USER_STATIC_VERSION}_${DEBIAN_ARCH[${HOST_ARCH_INDEX}]}.deb"
 	URL="http://ftp.debian.org/debian/pool/main/q/qemu/${PACKAGE}"
 	wget "${URL}"
 	ar vx "${PACKAGE}"
