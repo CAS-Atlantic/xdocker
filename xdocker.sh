@@ -154,6 +154,7 @@ echo "TEMP: ${TEMP_DIR}"
 echo ""
 
 _help() {
+
 echo "
 	Usage: 
 	xdocker [OPTIONS] <target architecture> <shared directory> [ <...> docker run cmd are passed through ]
@@ -164,12 +165,17 @@ echo "
 			--clean                         cleans up the docker images and container left behind
 
 		ARGS:
-			\"target architecture\" 		is one of ${QEMU_ARCH[*]} 
-											          or ${DEBIAN_ARCH[*]} 
-													  or ${DOCKER_ARCH[*]}
-			\"shared directory\" 			is the directory to chroot into
+			\"target architecture\" 		The desired architecture to chroot into.
+			\"shared directory\" 			The directory to chroot into.
 
+		Available Architecture:
 "
+	for (( i=0; i<${#QEMU_ARCH[@]}; i++ ))
+	do
+		printf "\t\t\t - "
+		printf "${QEMU_ARCH[${i}]}\n${DEBIAN_ARCH[${i}]}\n${DOCKER_ARCH[${i}]}" | sort -u | tr '\n' ',' | sed 's/,/, /g'
+		echo ""
+	done
 }
 
 _error_arg() {
@@ -277,7 +283,7 @@ _make_base_dockerfile() {
 
 	if [ "_${CUSTOM_DOCKERFILE}" != "_" ] && [ -f "${CUSTOM_DOCKERFILE}" ]
 	then
-        INPUT_FROM=$(grep -e "[fF][rR][oO][mM]" ${CUSTOM_DOCKERFILE} | sed 's/[fF][rR][oO][mM]\s*//g')
+        INPUT_FROM=$(awk -v IGNORECASE=1 '$1=="FROM" {print $2}' ${CUSTOM_DOCKERFILE})
 		CMD=""
     else
         INPUT_FROM="ubuntu:18.04"
@@ -384,6 +390,10 @@ while true; do
 		;;
 		--clean)
 			_clean_docker
+		;;
+		-h|--help)
+			_help
+			exit 0
 		;;
 		*)
 			break;
