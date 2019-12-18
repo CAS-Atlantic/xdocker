@@ -7,7 +7,9 @@ EXIT_CODE=0
 TMPDIR="${PWD}/tmp"
 mkdir -p ${TMPDIR}
 
-GETENT="${PWD}/bin/my_getent"
+LOCAL_BIN="${PWD}/bin"
+
+GETENT="${LOCAL_BIN}/my_getent"
 
 abspath() {             
 	changed_dir="true"            
@@ -70,15 +72,21 @@ compile_getent() {
 	fi
 }
 
-HOST_ARCH="$(uname -m)"
-HOST_OS="$(uname -s)"
-
 QEMU_ARCH=(
 	"x86_64"
 	"arm"
 	"aarch64"
 	"i386"
 	"ppc64le"
+	"s390x"
+)
+
+DEBIAN_ARCH=(
+	"amd64"
+	"armhf"
+	"arm64"
+	"i386"
+	"ppc64el"
 	"s390x"
 )
 
@@ -91,11 +99,38 @@ DOCKER_ARCH=(
 	"s390x"
 )
 
+_get_index_in_list() {
+	item=""
+	INDEX="-1"
+	for items in ${@}
+	do
+		if [ "${INDEX}" == "-1" ]; then
+			item=${items}
+		elif [ "_${item}" != "_" ] && [ "_${items}" == "_${item}" ]; then
+			echo "${INDEX}"
+			return ${INDEX}
+		fi
+		INDEX=$(( INDEX+1 ))
+	done
+
+	echo "-1"
+	return -1
+}
+
+_get_arch_index() {
+	INDEX="$(_get_index_in_list $1 ${QEMU_ARCH[@]})"
+	[ "$?" != "0" ] && INDEX="$(_get_index_in_list $1 ${DEBIAN_ARCH[@]})"
+	[ "$?" != "0" ] && INDEX="$(_get_index_in_list $1 ${DOCKER_ARCH[@]})"
+	echo "${INDEX}"
+}
+
+HOST_ARCH_INDEX="$(_get_arch_index $(uname -m))"
+HOST_OS="$(uname -s)"
+
 SHARE=""
 TARGET_ARCH=""
 
-MY_ARCH_INDEX=999
-OWNER="xdocker_${HOST_ARCH}"
+OWNER="xdocker_${QEMU_ARCH[${HOST_ARCH_INDEX}]}"
 MOUNT_TYPE="rshared"
 MOUNT_CMD=""
 
@@ -133,9 +168,12 @@ printf "\
 		OPTIONS:
 			-f|--file <custom dockerfile>	gives a custom dockerfile to build from. 
 				This script only supports running ubuntu, but the version is pulled from your docker file
+			--clean                         cleans up the docker images and container left behind
 
 		ARGS:
-			\"target architecture\" 		is one of ${QEMU_ARCH[@]}
+			\"target architecture\" 		is one of ${QEMU_ARCH[@]} 
+											          or ${DEBIAN_ARCH[@]} 
+													  or ${DOCKER_ARCH[@]}
 			\"shared directory\" 			is the directory to chroot into
 
 "
@@ -199,20 +237,24 @@ _make_mount_cmd() {
 	done
 }
 
-_get_arch_index() {
-	# find index
-	INDEX=0
-	for arches in ${QEMU_ARCH[@]}
-	do
-		if [ "_$(echo ${QEMU_ARCH[$INDEX]} | grep $1)" != "_" ]; then
-			echo "$INDEX"
-			return 0
-		fi
-		INDEX=$(( INDEX+1 ))
-	done
+_get_qemu_user_static_deb() {
+	pushd $(mktemp -d)
+	PACKAGE="qemu-user-static_4.2-1_${DEBIAN_ARCH[${HOST_ARCH_INDEX}]}.deb"
+	URL="http://ftp.debian.org/debian/pool/main/q/qemu/${PACKAGE}"
+	wget "${URL}"
+	ar vx "${PACKAGE}"
+	tar xvf data.tar.xz 
+	mv -t $1 usr/bin/*
+	popd
+}
 
-	echo "999"
-	return 1
+_register_docker_static_bin() {
+	pushd $(mktemp -d)
+	git clone https://github.com/multiarch/qemu-user-static.git ./
+	git reset --hard 20674ec
+	docker build -t qemu-user-static-bin-register -f register/Dockerfile register
+	docker run --rm --privileged qemu-user-static-bin-register --reset --qemu-path=$1
+	popd
 }
 
 _clean_docker() {
@@ -229,22 +271,14 @@ _clean_docker() {
 	docker images
 }
 
-_get_docker_static_bin() {
-	pushd $(mktemp -d)
-	git clone https://github.com/multiarch/qemu-user-static.git ./
-	git reset --hard 20674ec
-	docker build -t qemu-user-static-bin-register -f register/Dockerfile register
-	docker run --rm --privileged qemu-user-static-bin-register --reset
-	popd
-}
-
 _make_base_dockerfile() {
 
 	COPY_QUEMU_INTRPRTR_DIRECTIVE=""
-	case x86_64 in \
-		${HOST_ARCH}) 	COPY_QUEMU_INTRPRTR_DIRECTIVE="COPY qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static /usr/bin/";;
-		*)			COPY_QUEMU_INTRPRTR_DIRECTIVE="";;
-	esac
+	if [ "${MY_ARCH_INDEX}" != "${HOST_ARCH_INDEX}" ]
+	then
+		# we need to run the interpretter if we are in a different target than host
+		COPY_QUEMU_INTRPRTR_DIRECTIVE="COPY qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static /usr/bin/";;
+	fi
 
 	CMD=""
 
@@ -327,8 +361,7 @@ _build_dir_spec_dockerfile() {
 
 #######################
 # input args
-DONE=""
-while [ "_${DONE}" == "_" ]; do
+while true; do
 	case $1 in
 		-f|--file)
 			if [ "_$2" != "_" ]; then
@@ -345,13 +378,15 @@ while [ "_${DONE}" == "_" ]; do
 			shift
 			shift
 		;;
+		--clean)
+			_clean_docker
+		;;
 		*)
-			DONE="1"
+			break;
 		;;
 	esac
 done
 
-TARGET_ARCH=""
 if [ "_$1" == "_" ]; then
 	_error_arg "target architecture is not passed in as argument"
 else
@@ -359,12 +394,11 @@ else
 	if [ "_${MY_ARCH_INDEX}" == "_999" ]; then
 		_error_arg "target architecture $1 is not valid"
 	else
-		echo "using Arch ${QEMU_ARCH[${MY_ARCH_INDEX}]}"
+		echo "using Arch ${QEMU_ARCH[${MY_ARCH_INDEX}]} on a ${QEMU_ARCH[${HOST_ARCH_INDEX}]} "
 		shift
 	fi
 fi
 
-SHARE=""
 if [ "_$1" == "_" ]; then
 	_error_arg "Shared directory is not passed in as argument"
 else
@@ -382,12 +416,21 @@ if [ "_${CUSTOM_DOCKERFILE_DIR}" != "_" ] && [ -d ${CUSTOM_DOCKERFILE_DIR} ]; th
 	rm -f Dockerfile
 fi
 
-# register static binaries
-if [ "0" == "$(docker images qemu-user-static-bin-register -q | wc -l)" ]; then
-	_get_docker_static_bin
+QEMU_BIN_DIR="/usr/bin"
+if [ ! -f "/usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static" ]; then
+	QEMU_BIN_DIR="${LOCAL_BIN}"
 fi
 
-cp /usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ${TEMP_DIR}/build/
+if [ ! -f "${QEMU_BIN_DIR}/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static" ]; then
+	_get_qemu_user_static_deb ${QEMU_BIN_DIR}
+fi
+	
+cp ${LOCAL_BIN}/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ${TEMP_DIR}/build/
+
+# register static binaries
+if [ "0" == "$(docker images qemu-user-static-bin-register -q | wc -l)" ]; then
+	_register_docker_static_bin ${LOCAL_BIN}
+fi
 
 _make_base_dockerfile
 _build_base_dockerfile
