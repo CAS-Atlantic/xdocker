@@ -18,7 +18,7 @@ abspath() {
 }
 
 _concat_path() {
-	echo $1 | sed s+/++g | awk '{print tolower($0)}'
+	echo $1 | sed 's+[^a-zA-Z0-9_-]++g' | awk '{print tolower($0)}'
 }
 
 init_getent() {
@@ -56,17 +56,17 @@ EOF
 
 compile_getent() {
 	if [ ! -f ${GETENT} ]; then
-		mkdir -p $(dirname ${GETENT})
+		mkdir -p "$(dirname ${GETENT})"
 		CC=$( which gcc )
 		[ "$?" != "0" ] && CC=$( which clang ) || true
 
 		if [ "$?" != "0" ]; then
 			echo "Unable to find a C compiler, Exiting"
-			exit -1
+			exit 1
 		fi
 
 		init_getent
-		${CC} my_getent.c -o ${GETENT}
+		${CC} my_getent.c -o "${GETENT}"
 		rm my_getent.c
 	fi
 }
@@ -101,38 +101,33 @@ DOCKER_ARCH=(
 _get_index_in_list() {
 	item=""
 	INDEX="-1"
-	for items in ${@}
+	for items in $@
 	do
 		if [ "${INDEX}" == "-1" ]; then
 			item=${items}
 		elif [ "_${item}" != "_" ] && [ "_${items}" == "_${item}" ]; then
 			echo "${INDEX}"
-			return ${INDEX}
+			return 0
 		fi
 		INDEX=$(( INDEX+1 ))
 	done
 
 	echo "-1"
-	return -1
+	return 1
 }
 
 _get_arch_index() {
-	INDEX="$(_get_index_in_list $1 ${QEMU_ARCH[@]})"
-	[ "$?" != "0" ] && INDEX="$(_get_index_in_list $1 ${DEBIAN_ARCH[@]})"
-	[ "$?" != "0" ] && INDEX="$(_get_index_in_list $1 ${DOCKER_ARCH[@]})"
+	INDEX="$(_get_index_in_list $1 "${QEMU_ARCH[*]}")"
+	[ "${INDEX}" == "-1" ] && INDEX="$(_get_index_in_list $1 "${DEBIAN_ARCH[*]}")"
+	[ "${INDEX}" == "-1" ] && INDEX="$(_get_index_in_list $1 "${DOCKER_ARCH[*]}")"
 	echo "${INDEX}"
 }
 
-HOST_ARCH_INDEX="$(_get_arch_index $(uname -m))"
-HOST_OS="$(uname -s)"
+HOST_ARCH_INDEX="$(_get_arch_index "$(uname -m)")"
 
 SHARE=""
-TARGET_ARCH=""
-
 OWNER="xdocker_${QEMU_ARCH[${HOST_ARCH_INDEX}]}"
 MOUNT_TYPE="rshared"
-MOUNT_CMD=""
-
 BASE_TAG=""
 USER_TAG=""
 FINAL_TAG=""
@@ -151,7 +146,6 @@ U_SHELL=$(${GETENT} s)
 
 YOUR_REPO=$(echo "${U_USER}" | awk '{print tolower($0)}')
 
-CURRENT_DIR=${PWD}
 TEMP_DIR=$(mktemp -d)
 BUILD_CONTEXT_DIR="${TEMP_DIR}/build/"
 mkdir -p ${BUILD_CONTEXT_DIR}
@@ -159,8 +153,7 @@ echo "TEMP: ${TEMP_DIR}"
 echo ""
 
 _help() {
-printf "\
-	
+echo "
 	Usage: 
 	xdocker [OPTIONS] <target architecture> <shared directory> [ <...> docker run cmd are passed through ]
 	
@@ -170,9 +163,9 @@ printf "\
 			--clean                         cleans up the docker images and container left behind
 
 		ARGS:
-			\"target architecture\" 		is one of ${QEMU_ARCH[@]} 
-											          or ${DEBIAN_ARCH[@]} 
-													  or ${DOCKER_ARCH[@]}
+			\"target architecture\" 		is one of ${QEMU_ARCH[*]} 
+											          or ${DEBIAN_ARCH[*]} 
+													  or ${DOCKER_ARCH[*]}
 			\"shared directory\" 			is the directory to chroot into
 
 "
@@ -180,14 +173,14 @@ printf "\
 
 _error_arg() {
 	EXIT_CODE=1
-	echo "ERROR_ARGS: $@"
+	echo "ERROR_ARGS: $*"
 	_help
 	_exit
 }
 
 _error() {
 	EXIT_CODE=2
-	echo "ERROR: $@"
+	echo "ERROR: $*"
 	_exit
 }
 
@@ -276,32 +269,43 @@ _make_base_dockerfile() {
 	if [ "${MY_ARCH_INDEX}" != "${HOST_ARCH_INDEX}" ]
 	then
 		# we need to run the interpretter if we are in a different target than host
-		COPY_QUEMU_INTRPRTR_DIRECTIVE="COPY qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static /usr/bin/";;
+		COPY_QUEMU_INTRPRTR_DIRECTIVE="COPY qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static /usr/bin/"
 	fi
 
 	CMD=""
 
 	if [ "_${CUSTOM_DOCKERFILE}" != "_" ] && [ -f "${CUSTOM_DOCKERFILE}" ]
 	then
-        INPUT_FROM=$(cat ${CUSTOM_DOCKERFILE} | grep -e "[fF][rR][oO][mM]" | sed 's/[fF][rR][oO][mM]\s*//g')
+        INPUT_FROM=$(grep -e "[fF][rR][oO][mM]" ${CUSTOM_DOCKERFILE} | sed 's/[fF][rR][oO][mM]\s*//g')
 		CMD=""
     else
-        INPUT_FROM="${DOCKER_ARCH[${MY_ARCH_INDEX}]}/ubuntu:18.04"
+        INPUT_FROM="ubuntu:18.04"
         CMD="CMD [ \"/bin/bash\" ]"
 	fi
 
-	FROM_DIRECTIVE="${DOCKER_ARCH[${MY_ARCH_INDEX}]}/${INPUT_FROM}"
 	IMAGE_FOUND="false"
 
-	docker pull ${FROM_DIRECTIVE} && IMAGE_FOUND="true"
+	if [ "_${IMAGE_FOUND}" != "_true" ]
+	then
+		FROM_DIRECTIVE="${DOCKER_ARCH[${MY_ARCH_INDEX}]}/${INPUT_FROM}"
+		docker pull "${FROM_DIRECTIVE}" && IMAGE_FOUND="true"
+	fi
+
 	if [ "_${IMAGE_FOUND}" != "_true" ]
 	then
 		FROM_DIRECTIVE="${QEMU_ARCH[${MY_ARCH_INDEX}]}/${INPUT_FROM}"
-		docker pull ${FROM_DIRECTIVE} && IMAGE_FOUND="true"
-		if [ "_${IMAGE_FOUND}" != "_true" ]
-		then
-			_error_arg "unsupported arch for custom dockerfile \"${INPUT_FROM}\""
-		fi
+		docker pull "${FROM_DIRECTIVE}" && IMAGE_FOUND="true"
+	fi
+	
+	if [ "_${IMAGE_FOUND}" != "_true" ]
+	then
+		FROM_DIRECTIVE="${DEBIAN_ARCH[${MY_ARCH_INDEX}]}/${INPUT_FROM}"
+		docker pull "${FROM_DIRECTIVE}" && IMAGE_FOUND="true"
+	fi
+
+	if [ "_${IMAGE_FOUND}" != "_true" ]
+	then
+		_error_arg "unsupported arch for custom dockerfile \"${INPUT_FROM}\""
 	fi
 
 	echo -e "\
@@ -327,16 +331,16 @@ _make_user_spec_dockerfile() {
 	CMD="$(cat ${TEMP_DIR}/Base.Dockerfile | grep CMD)"
 	echo -e "\
 FROM ${BASE_TAG}\n\
-ENV XDOCKER=${QEMU_ARCH}\n\
+ENV XDOCKER=${QEMU_ARCH[${MY_ARCH_INDEX}]}\n\
 RUN groupadd -f -g ${U_GID} ${U_GROUP} || true\n\
 RUN useradd -u ${U_UID} -g ${U_GID} -G ${U_GROUP} -m -s /bin/bash ${U_USER}\n\
 ${CMD}\n\
-" > ${TEMP_DIR}/User.Dockerfile
+" > "${TEMP_DIR}/User.Dockerfile"
 }
 
 _build_user_spec_dockerfile() {
 	USER_TAG="${BASE_TAG}_${YOUR_REPO}"
-	docker build -t ${USER_TAG} -f ${TEMP_DIR}/User.Dockerfile ${BUILD_CONTEXT_DIR}
+	docker build -t "${USER_TAG}" -f "${TEMP_DIR}/User.Dockerfile" "${BUILD_CONTEXT_DIR}"
 }
 
 _make_dir_spec_dockerfile() {
@@ -390,7 +394,7 @@ if [ "_$1" == "_" ]; then
 	_error_arg "target architecture is not passed in as argument"
 else
 	MY_ARCH_INDEX=$( _get_arch_index $1 )
-	if [ "_${MY_ARCH_INDEX}" == "_999" ]; then
+	if [ "_${MY_ARCH_INDEX}" == "-1" ]; then
 		_error_arg "target architecture $1 is not valid"
 	else
 		echo "using Arch ${QEMU_ARCH[${MY_ARCH_INDEX}]} on a ${QEMU_ARCH[${HOST_ARCH_INDEX}]} "
@@ -416,19 +420,19 @@ if [ "_${CUSTOM_DOCKERFILE_DIR}" != "_" ] && [ -d ${CUSTOM_DOCKERFILE_DIR} ]; th
 fi
 
 QEMU_BIN_DIR="/usr/bin"
-if [ ! -f "/usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static" ]; then
+if [ ! -e "/usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static" ]; then
 	QEMU_BIN_DIR="${LOCAL_BIN}"
 fi
 
-if [ ! -f "${QEMU_BIN_DIR}/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static" ]; then
+if [ ! -e "${QEMU_BIN_DIR}/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static" ]; then
 	_get_qemu_user_static_deb ${QEMU_BIN_DIR}
 fi
 	
-cp ${LOCAL_BIN}/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ${TEMP_DIR}/build/
+cp ${QEMU_BIN_DIR}/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ${TEMP_DIR}/build/
 
 # register static binaries
 if [ "0" == "$(docker images qemu-user-static-bin-register -q | wc -l)" ]; then
-	_register_docker_static_bin ${LOCAL_BIN}
+	_register_docker_static_bin ${QEMU_BIN_DIR}
 fi
 
 _make_base_dockerfile
