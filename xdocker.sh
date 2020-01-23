@@ -247,29 +247,6 @@ _get_qemu_user_static_deb() {
 	popd
 }
 
-_register_docker_static_bin() {
-	pushd $(mktemp -d)
-	git clone https://github.com/multiarch/qemu-user-static.git ./
-	git reset --hard 20674ec
-	docker build -t qemu-user-static-bin-register -f register/Dockerfile register
-	docker run --rm --privileged qemu-user-static-bin-register --reset --qemu-path=$1
-	popd
-}
-
-_clean_docker() {
-
-	docker rm -v $(docker ps -a -q) &> /dev/null
-	docker volume rm $(docker volume ls -q -f dangling=true) &> /dev/null
-	docker rmi $(docker images -f dangling=true) &> /dev/null
-
-	echo -e "\nContainers Left -----------\n"
-	docker ps -a
-	echo -e "\nVolumes Left -----------\n"
-	docker volume ls
-	echo -e "\nImages Left -----------\n"
-	docker images
-}
-
 _make_base_dockerfile() {
 
 	COPY_QUEMU_INTRPRTR_DIRECTIVE=""
@@ -366,6 +343,39 @@ _build_dir_spec_dockerfile() {
 	docker build -t ${FINAL_TAG} -f ${TEMP_DIR}/Dir.Dockerfile ${BUILD_CONTEXT_DIR}
 }
 
+_build_register_docker_static_bin() {
+	pushd $(mktemp -d)
+	git clone https://github.com/multiarch/qemu-user-static.git ./
+	git reset --hard 20674ec
+	docker build -t qemu-user-static-bin-register -f register/Dockerfile register
+	popd
+}
+
+_register_docker_static_bin() {
+	if [ ! -f "/proc/sys/fs/binfmt_misc/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}" ];
+	then
+		if [ "0" == "$(docker images qemu-user-static-bin-register -q | wc -l)" ]; 
+		then
+			_build_register_docker_static_bin
+		fi
+		docker run --rm --privileged qemu-user-static-bin-register --reset --qemu-path="$1"
+	fi
+}
+
+_clean_docker() {
+
+	docker rm -v $(docker ps -a -q) &> /dev/null
+	docker volume rm $(docker volume ls -q -f dangling=true) &> /dev/null
+	docker rmi $(docker images -f dangling=true) &> /dev/null
+
+	echo -e "\nContainers Left -----------\n"
+	docker ps -a
+	echo -e "\nVolumes Left -----------\n"
+	docker volume ls
+	echo -e "\nImages Left -----------\n"
+	docker images
+}
+
 ###########################################
 # begin
 
@@ -442,9 +452,8 @@ fi
 cp ${QEMU_BIN_DIR}/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ${TEMP_DIR}/build/
 
 # register static binaries
-if [ "0" == "$(docker images qemu-user-static-bin-register -q | wc -l)" ]; then
-	_register_docker_static_bin ${QEMU_BIN_DIR}
-fi
+_register_docker_static_bin ${QEMU_BIN_DIR}
+
 
 _make_base_dockerfile
 _build_base_dockerfile
