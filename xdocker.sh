@@ -71,6 +71,15 @@ compile_getent() {
 	fi
 }
 
+OTHER_ARCH=(
+	"x64"
+	"arm"
+	"aarch64"
+	"x86"
+	"ppc64le"
+	"s390x"
+)
+
 QEMU_ARCH=(
 	"x86_64"
 	"arm"
@@ -98,28 +107,17 @@ DOCKER_ARCH=(
 	"s390x"
 )
 
-_get_index_in_list() {
-	item=""
-	INDEX="-1"
-	for items in $@
-	do
-		if [ "${INDEX}" == "-1" ]; then
-			item=${items}
-		elif [ "_${item}" != "_" ] && [ "_${items}" == "_${item}" ]; then
-			echo "${INDEX}"
-			return 0
-		fi
-		INDEX=$(( INDEX+1 ))
-	done
-
-	echo "-1"
-	return 1
-}
-
 _get_arch_index() {
-	INDEX="$(_get_index_in_list $1 "${QEMU_ARCH[*]}")"
-	[ "${INDEX}" == "-1" ] && INDEX="$(_get_index_in_list $1 "${DEBIAN_ARCH[*]}")"
-	[ "${INDEX}" == "-1" ] && INDEX="$(_get_index_in_list $1 "${DOCKER_ARCH[*]}")"
+	INDEX="-1"
+	for ((i=0; INDEX == -1 && i < ${#QEMU_ARCH[@]}; i++))
+	do
+		case "$1" in
+			"${QEMU_ARCH[$i]}"|"${DEBIAN_ARCH[$i]}"|"${DOCKER_ARCH[$i]}"|"${OTHER_ARCH[$i]}")
+				INDEX="${i}"
+			;;
+			*);;
+		esac
+	done
 	echo "${INDEX}"
 }
 
@@ -173,7 +171,7 @@ echo "
 	for (( i=0; i<${#QEMU_ARCH[@]}; i++ ))
 	do
 		printf "\t\t\t - "
-		printf "${QEMU_ARCH[${i}]}\n${DEBIAN_ARCH[${i}]}\n${DOCKER_ARCH[${i}]}" | sort -u | tr '\n' ',' | sed 's/,/, /g'
+		printf "${OTHER_ARCH[${i}]}\n${QEMU_ARCH[${i}]}\n${DEBIAN_ARCH[${i}]}\n${DOCKER_ARCH[${i}]}" | sort -u | tr '\n' ',' | sed 's/,/, /g'
 		echo ""
 	done
 }
@@ -333,6 +331,7 @@ _make_dir_spec_dockerfile() {
 FROM ${USER_TAG}\n\
 RUN mkdir -p ${SHARE}\n\
 WORKDIR ${SHARE}\n\
+USER ${U_USER}
 ${CMD}\n\
 " > ${TEMP_DIR}/Dir.Dockerfile
 }
@@ -395,8 +394,8 @@ done
 if [ "_$1" == "_" ]; then
 	_error_arg "target architecture is not passed in as argument"
 else
-	MY_ARCH_INDEX=$( _get_arch_index $1 )
-	if [ "_${MY_ARCH_INDEX}" == "-1" ]; then
+	MY_ARCH_INDEX=$( _get_arch_index "$1" )
+	if [ "_${MY_ARCH_INDEX}" == "_-1" ]; then
 		_error_arg "target architecture $1 is not valid"
 	else
 		echo "using Arch ${QEMU_ARCH[${MY_ARCH_INDEX}]} on a ${QEMU_ARCH[${HOST_ARCH_INDEX}]} "
@@ -466,45 +465,40 @@ Starting
  image: ${FINAL_TAG} 
  mount: ${SHARE} 
  arch:  ${QEMU_ARCH[${MY_ARCH_INDEX}]}
-
+ user: ${U_USER}:${U_UID}
+ group: ${U_GROUP}:${U_GID}
 "
 
-EXEC=""
+EXEC="docker run -it
+			--privileged
+			--cap-add=SYS_PTRACE
+			--security-opt seccomp=unconfined
+			--user=${U_UID}:${U_GID}
+"
+
 case ${HOST_OS} in
 	Darwin)
-		EXEC="docker run -it \
-			--privileged \
-			--cap-add=SYS_PTRACE \
-			--security-opt seccomp=unconfined \
-			-v ${SHARE}:${SHARE} \
-			--user ${U_USER} \
-			"$@" \
-			${FINAL_TAG}"
+		EXEC="${EXEC} 
+				-v ${SHARE}:${SHARE}
+		"
 		;;
 	Linux)
-		EXEC="docker run -it \
-			--privileged \
-			--cap-add=SYS_PTRACE \
-			--security-opt seccomp=unconfined \
-			--mount type=bind,source=${SHARE},target=${SHARE},bind-propagation=rshared \
-			--user ${U_USER} \
-			"$@" \
-			${FINAL_TAG}"
+		EXEC="${EXEC} 
+				--mount type=bind,source=${SHARE},target=${SHARE},bind-propagation=rshared
+		"
 		;;
 	*)
 		echo "Untested host! ${HOST_OS}, please consider submitting your result so we can improve"
-		EXEC="docker run -it \
-			--privileged \
-			--cap-add=SYS_PTRACE \
-			--security-opt seccomp=unconfined \
-			--mount type=bind,source=${SHARE},target=${SHARE},bind-propagation=rshared \
-			--user ${U_USER} \
-			"$@" \
-			${FINAL_TAG}"
+		EXEC="${EXEC} 
+				--mount type=bind,source=${SHARE},target=${SHARE},bind-propagation=rshared
+		"
 		;;
 esac
-
-EXEC=$(echo ${EXEC} | tr -s "[:blank:]")
+EXEC="${EXEC}		
+		${FINAL_TAG}
+		$*
+"
+EXEC=$(echo "${EXEC}" | tr '\n' ' ' | tr -s "[:blank:]")
 echo "STARTING #################### 
 ${EXEC}"
 
