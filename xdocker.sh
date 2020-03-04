@@ -420,24 +420,30 @@ if [ "_${CUSTOM_DOCKERFILE_DIR}" != "_" ] && [ -d ${CUSTOM_DOCKERFILE_DIR} ]; th
 	rm -f Dockerfile
 fi
 
-QEMU_BIN_DIR="/usr/bin"
-if [ ! -e "/usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static" ]; then
-	if ! touch ${QEMU_BIN_DIR}/qemu-test-file;
-	then
-		QEMU_BIN_DIR="${LOCAL_BIN}"
-	else
-		rm ${QEMU_BIN_DIR}/qemu-test-file
+# if there is a mismatch, we need to use qemu
+if [ "${HOST_ARCH_INDEX}" != "${MY_ARCH_INDEX}" ]
+then
+
+	QEMU_BIN_DIR="/usr/bin"
+	if [ ! -e "/usr/bin/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static" ]; then
+		if ! touch ${QEMU_BIN_DIR}/qemu-test-file;
+		then
+			QEMU_BIN_DIR="${LOCAL_BIN}"
+		else
+			rm ${QEMU_BIN_DIR}/qemu-test-file
+		fi
 	fi
-fi
 
-if [ ! -e "${QEMU_BIN_DIR}/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static" ]; then
-	_get_qemu_user_static_deb ${QEMU_BIN_DIR}
-fi
+	if [ ! -e "${QEMU_BIN_DIR}/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static" ]; then
+		_get_qemu_user_static_deb ${QEMU_BIN_DIR}
+	fi
+		
+	cp ${QEMU_BIN_DIR}/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ${TEMP_DIR}/build/
 	
-cp ${QEMU_BIN_DIR}/qemu-${QEMU_ARCH[${MY_ARCH_INDEX}]}-static ${TEMP_DIR}/build/
+	# register static binaries
+	docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
 
-# register static binaries
-docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+fi
 
 _make_base_dockerfile
 _build_base_dockerfile
